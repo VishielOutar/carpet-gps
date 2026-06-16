@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>CarPet GPS</title>
+<style>
+  :root {
+    --bg: #0c0c10;
+    --card: #16161c;
+    --accent: #a2bafc;
+    --accent2: #2ec4d8;
+    --text: #f0f0f4;
+    --muted: #8a8a96;
+    --good: #7ed321;
+    --bad: #e8506e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body {
+    font-family: -apple-system, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 18px;
+    gap: 18px;
+  }
+  h1 { font-size: 22px; letter-spacing: 1px; margin-top: 8px; }
+  .cat { font-size: 46px; }
+  .card {
+    background: var(--card);
+    border-radius: 16px;
+    padding: 20px;
+    width: 100%;
+    max-width: 420px;
+    border: 1px solid #24242c;
+  }
+  .status {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 15px; margin-bottom: 4px;
+  }
+  .dot { width: 12px; height: 12px; border-radius: 50%; background: var(--bad); transition: background .3s; }
+  .dot.on { background: var(--good); }
+  button {
+    width: 100%;
+    padding: 16px;
+    font-size: 17px;
+    font-weight: 600;
+    border: none;
+    border-radius: 12px;
+    background: var(--accent);
+    color: #0c0c10;
+    margin-top: 14px;
+    cursor: pointer;
+    transition: opacity .2s, transform .1s;
+  }
+  button:active { transform: scale(.98); }
+  button:disabled { opacity: .4; }
+  button.secondary { background: #24242c; color: var(--text); }
+  .readout {
+    display: flex; justify-content: space-around; text-align: center;
+    margin-top: 18px;
+  }
+  .readout .val { font-size: 38px; font-weight: 700; }
+  .readout .unit { font-size: 13px; color: var(--muted); letter-spacing: 1px; }
+  .accent { color: var(--accent); }
+  .accent2 { color: var(--accent2); }
+  .log {
+    font-size: 12px; color: var(--muted);
+    background: #0a0a0e; border-radius: 10px; padding: 12px;
+    height: 120px; overflow-y: auto; margin-top: 14px;
+    font-family: ui-monospace, monospace; line-height: 1.5;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .hint { font-size: 13px; color: var(--muted); margin-top: 10px; line-height: 1.5; }
+</style>
+</head>
+<body>
+  <div class="cat">🐱</div>
+  <h1>CARPET GPS</h1>
+
+  <div class="card">
+    <div class="status">
+      <div class="dot" id="bleDot"></div>
+      <span id="bleStatus">Not connected to CarPet</span>
+    </div>
+    <div class="status">
+      <div class="dot" id="gpsDot"></div>
+      <span id="gpsStatus">GPS off</span>
+    </div>
+
+    <button id="connectBtn">Connect to CarPet</button>
+    <button id="gpsBtn" class="secondary" disabled>Start GPS</button>
+
+    <div class="readout">
+      <div>
+        <div class="val accent" id="speedVal">0</div>
+        <div class="unit">MPH</div>
+      </div>
+      <div>
+        <div class="val accent2" id="distVal">0.0</div>
+        <div class="unit">MILES</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="log" id="log">Ready. Tap "Connect to CarPet" to begin.</div>
+    <div class="hint">Open this page in <b>Bluefy</b> (iPhone) or Chrome (Android). Connect to CarPet, then Start GPS. Keep this page open while driving — it streams your phone's GPS speed and distance to the gauge.</div>
+  </div>
+
+<script>
+const SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const CHAR_UUID    = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+
+let device = null, characteristic = null;
+let watchId = null;
+let totalMiles = 0;
+let lastPos = null;
+
+const $ = id => document.getElementById(id);
+function log(msg) {
+  const el = $('log');
+  const time = new Date().toLocaleTimeString();
+  el.textContent = `[${time}] ${msg}\n` + el.textContent;
+}
+
+// ── BLE connect ──
+$('connectBtn').onclick = async () => {
+  try {
+    log("Requesting BLE device...");
+    device = await navigator.bluetooth.requestDevice({
+      filters: [{ name: "CarPet" }],
+      optionalServices: [SERVICE_UUID]
+    });
+    log("Selected: " + device.name);
+    device.addEventListener('gattserverdisconnected', onDisconnect);
+
+    const server = await device.gatt.connect();
+    log("Connected to GATT server");
+    const service = await server.getPrimaryService(SERVICE_UUID);
+    characteristic = await service.getCharacteristic(CHAR_UUID);
+    log("Got characteristic - ready to stream");
+
+    $('bleDot').classList.add('on');
+    $('bleStatus').textContent = "Connected to CarPet";
+    $('connectBtn').textContent = "Connected";
+    $('connectBtn').disabled = true;
+    $('gpsBtn').disabled = false;
+  } catch (err) {
+    log("ERROR: " + err.message);
+  }
+};
+
+function onDisconnect() {
+  log("CarPet disconnected");
+  $('bleDot').classList.remove('on');
+  $('bleStatus').textContent = "Not connected to CarPet";
+  $('connectBtn').textContent = "Connect to CarPet";
+  $('connectBtn').disabled = false;
+  $('gpsBtn').disabled = true;
+  characteristic = null;
+}
+
+// ── GPS ──
+$('gpsBtn').onclick = () => {
+  if (watchId === null) {
+    if (!navigator.geolocation) { log("Geolocation not supported"); return; }
+    log("Starting GPS...");
+    watchId = navigator.geolocation.watchPosition(onGps, onGpsErr, {
+      enableHighAccuracy: true, maximumAge: 0, timeout: 5000
+    });
+    $('gpsBtn').textContent = "Stop GPS";
+    $('gpsDot').classList.add('on');
+    $('gpsStatus').textContent = "GPS active";
+  } else {
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    $('gpsBtn').textContent = "Start GPS";
+    $('gpsDot').classList.remove('on');
+    $('gpsStatus').textContent = "GPS off";
+    log("GPS stopped");
+  }
+};
+
+function onGps(pos) {
+  // speed in m/s from GPS; convert to mph
+  let speedMph = 0;
+  if (pos.coords.speed !== null && !isNaN(pos.coords.speed)) {
+    speedMph = pos.coords.speed * 2.23694;  // m/s to mph
+  }
+
+  // accumulate distance from position deltas
+  if (lastPos) {
+    const d = haversine(lastPos.latitude, lastPos.longitude,
+                        pos.coords.latitude, pos.coords.longitude);
+    if (d < 0.5) totalMiles += d;  // ignore GPS jumps over 0.5mi
+  }
+  lastPos = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+
+  $('speedVal').textContent = Math.round(speedMph);
+  $('distVal').textContent = totalMiles.toFixed(1);
+
+  sendToCarpet(speedMph, totalMiles);
+}
+
+function onGpsErr(err) {
+  log("GPS error: " + err.message);
+}
+
+// distance between two lat/lon points in miles
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 3958.8; // earth radius in miles
+  const dLat = (lat2-lat1) * Math.PI/180;
+  const dLon = (lon2-lon1) * Math.PI/180;
+  const a = Math.sin(dLat/2)**2 +
+            Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) *
+            Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+// ── send to ESP32 ──
+async function sendToCarpet(speed, miles) {
+  if (!characteristic) return;
+  try {
+    const msg = `S:${speed.toFixed(1)},D:${miles.toFixed(2)}`;
+    await characteristic.writeValue(new TextEncoder().encode(msg));
+  } catch (err) {
+    log("Send failed: " + err.message);
+  }
+}
+</script>
+</body>
+</html>
