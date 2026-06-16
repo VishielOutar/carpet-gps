@@ -187,19 +187,17 @@ $('gpsBtn').onclick = () => {
 
 function onGps(pos) {
   // speed in m/s from GPS; convert to mph
- let lastSend = 0;
-function onGps(pos) {
-  // ... existing speed/distance calculation stays the same ...
-
-  $('speedVal').textContent = Math.round(speedMph);
-  $('distVal').textContent = totalMiles.toFixed(1);
-
-  const now = Date.now();
-  if (now - lastSend > 1000) {     // send at most once per second
-    lastSend = now;
-    sendToCarpet(speedMph, totalMiles);
+  let speedMph = 0;
+  if (pos.coords.speed !== null && !isNaN(pos.coords.speed)) {
+    speedMph = pos.coords.speed * 2.23694;  // m/s to mph
   }
-}
+
+  // accumulate distance from position deltas
+  if (lastPos) {
+    const d = haversine(lastPos.latitude, lastPos.longitude,
+                        pos.coords.latitude, pos.coords.longitude);
+    if (d < 0.5) totalMiles += d;  // ignore GPS jumps over 0.5mi
+  }
   lastPos = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
 
   $('speedVal').textContent = Math.round(speedMph);
