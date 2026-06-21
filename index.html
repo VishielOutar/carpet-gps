@@ -359,6 +359,21 @@ $('gpsBtn').onclick = () => {
 };
 
 function onGps(pos) {
+
+  let lastSentSpeed = -1, lastSentDist = -1;
+
+async function sendGps(speed, miles) {
+  if (!gpsChar) return;
+  // Only send if speed changed by >1 mph or distance by >0.01 miles
+  if (Math.abs(speed - lastSentSpeed) < 1.0 && Math.abs(miles - lastSentDist) < 0.01) return;
+  lastSentSpeed = speed;
+  lastSentDist  = miles;
+  try {
+    await gpsChar.writeValue(new TextEncoder().encode(
+      `S:${speed.toFixed(1)},D:${miles.toFixed(2)}`));
+  } catch(e) { log("GPS send failed: " + e.message); }
+}
+  
   let mph = 0;
   if (pos.coords.speed != null && !isNaN(pos.coords.speed))
     mph = pos.coords.speed * 2.23694;
