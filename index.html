@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>CarPet GPS</title>
+<title>CarPet</title>
 <style>
   :root {
     --bg: #0c0c10;
@@ -37,6 +37,13 @@
     max-width: 420px;
     border: 1px solid #24242c;
   }
+  .section-title {
+    font-size: 11px;
+    letter-spacing: 2px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+  }
   .status {
     display: flex; align-items: center; gap: 10px;
     font-size: 15px; margin-bottom: 4px;
@@ -59,14 +66,68 @@
   button:active { transform: scale(.98); }
   button:disabled { opacity: .4; }
   button.secondary { background: #24242c; color: var(--text); }
+
+  /* speed/miles readout */
   .readout {
     display: flex; justify-content: space-around; text-align: center;
     margin-top: 18px;
   }
   .readout .val { font-size: 38px; font-weight: 700; }
   .readout .unit { font-size: 13px; color: var(--muted); letter-spacing: 1px; }
-  .accent { color: var(--accent); }
+  .accent  { color: var(--accent); }
   .accent2 { color: var(--accent2); }
+
+  /* pet stats */
+  .stat-row {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
+  }
+  .stat-label { font-size: 14px; width: 72px; flex-shrink: 0; }
+  .bar-bg {
+    flex: 1; height: 8px; background: #24242c;
+    border-radius: 4px; overflow: hidden;
+  }
+  .bar-fill {
+    height: 100%; border-radius: 4px;
+    transition: width .6s cubic-bezier(.4,0,.2,1);
+  }
+  .bar-fill.hunger { background: var(--accent); }
+  .bar-fill.happy  { background: var(--accent2); }
+  .stat-num { font-size: 13px; font-weight: 700; width: 28px; text-align: right; }
+  .level-row {
+    display: flex; align-items: center; gap: 10px; margin-top: 2px;
+  }
+  .level-label { font-size: 18px; font-weight: 700; color: var(--accent); width: 56px; }
+  .xp-bg {
+    flex: 1; height: 6px; background: #24242c;
+    border-radius: 3px; overflow: hidden;
+  }
+  .xp-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent2));
+    border-radius: 3px;
+    transition: width .6s cubic-bezier(.4,0,.2,1);
+  }
+  .xp-label { font-size: 11px; color: var(--muted); width: 52px; text-align: right; }
+
+  /* difficulty */
+  .diff-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px;
+  }
+  .diff-btn {
+    padding: 14px 6px; font-size: 13px; font-weight: 700; letter-spacing: 1px;
+    border: 2px solid #24242c; border-radius: 10px;
+    background: #24242c; color: var(--muted);
+    cursor: pointer; transition: all .2s; margin-top: 0; width: auto;
+  }
+  .diff-btn.active {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: rgba(162,186,252,.08);
+  }
+  .diff-btn:active { transform: scale(.96); }
+  .diff-desc { font-size: 13px; color: var(--muted); line-height: 1.5; min-height: 38px; }
+
+  /* log */
   .log {
     font-size: 12px; color: var(--muted);
     background: #0a0a0e; border-radius: 10px; padding: 12px;
@@ -79,8 +140,9 @@
 </head>
 <body>
   <div class="cat">🐱</div>
-  <h1>CARPET GPS</h1>
+  <h1>CARPET</h1>
 
+  <!-- Connection + GPS card -->
   <div class="card">
     <div class="status">
       <div class="dot" id="bleDot"></div>
@@ -90,10 +152,8 @@
       <div class="dot" id="gpsDot"></div>
       <span id="gpsStatus">GPS off</span>
     </div>
-
     <button id="connectBtn">Connect to CarPet</button>
     <button id="gpsBtn" class="secondary" disabled>Start GPS</button>
-
     <div class="readout">
       <div>
         <div class="val accent" id="speedVal">0</div>
@@ -106,78 +166,179 @@
     </div>
   </div>
 
+  <!-- Pet stats card — hidden until connected -->
+  <div class="card" id="petCard" style="display:none">
+    <div class="section-title">Pet Status</div>
+    <div class="stat-row">
+      <div class="stat-label">🍖 Hunger</div>
+      <div class="bar-bg"><div class="bar-fill hunger" id="hungerBar" style="width:0%"></div></div>
+      <div class="stat-num accent" id="hungerVal">—</div>
+    </div>
+    <div class="stat-row" style="margin-bottom:18px">
+      <div class="stat-label">😊 Happy</div>
+      <div class="bar-bg"><div class="bar-fill happy" id="happyBar" style="width:0%"></div></div>
+      <div class="stat-num accent2" id="happyVal">—</div>
+    </div>
+    <div class="level-row">
+      <div class="level-label" id="levelVal">LVL —</div>
+      <div class="xp-bg"><div class="xp-fill" id="xpBar" style="width:0%"></div></div>
+      <div class="xp-label" id="xpVal">— / —</div>
+    </div>
+  </div>
+
+  <!-- Difficulty card — hidden until connected -->
+  <div class="card" id="diffCard" style="display:none">
+    <div class="section-title">Difficulty</div>
+    <div class="diff-grid">
+      <button class="diff-btn" data-d="0">SLOW</button>
+      <button class="diff-btn" data-d="1">CASUAL</button>
+      <button class="diff-btn" data-d="2">RACER</button>
+    </div>
+    <div class="diff-desc" id="diffDesc"></div>
+  </div>
+
+  <!-- Log card -->
   <div class="card">
     <div class="log" id="log">Ready. Tap "Connect to CarPet" to begin.</div>
-    <div class="hint">Open this page in <b>Bluefy</b> (iPhone) or Chrome (Android). Connect to CarPet, then Start GPS. Keep this page open while driving — it streams your phone's GPS speed and distance to the gauge.</div>
+    <div class="hint">Open this page in <b>Bluefy</b> (iPhone) or Chrome (Android). Connect to CarPet, then Start GPS. Keep this page open while driving.</div>
   </div>
 
 <script>
-const SERVICE_UUID = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-const CHAR_UUID    = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+// ── BLE UUIDs ──
+const SERVICE_UUID  = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const GPS_UUID      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
+const SETTINGS_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";  // write difficulty
+const STATS_UUID    = "6e400004-b5a3-f393-e0a9-e50e24dcca9e";  // notify pet stats
 
-let device = null, characteristic = null;
+let device = null;
+let gpsChar = null, settingsChar = null, statsChar = null;
 let watchId = null;
-let totalMiles = 0;
-let lastPos = null;
+let totalMiles = 0, lastPos = null;
+let currentDiff = 1;
+
+const DIFF_LABELS = ['SLOW', 'CASUAL', 'RACER'];
+const DIFF_DESC = [
+  'City & short trips. Small distances and gentle driving keeps your pet happy.',
+  'Everyday driving. Balanced hunger and happiness for regular commuters.',
+  'Highway & spirited driving. Your pet needs more miles and speed events to stay satisfied.'
+];
 
 const $ = id => document.getElementById(id);
+
 function log(msg) {
   const el = $('log');
-  const time = new Date().toLocaleTimeString();
-  el.textContent = `[${time}] ${msg}\n` + el.textContent;
+  const t = new Date().toLocaleTimeString();
+  el.textContent = `[${t}] ${msg}\n` + el.textContent;
+}
+
+// ── Difficulty UI ──
+function setDiffUI(d) {
+  currentDiff = d;
+  document.querySelectorAll('.diff-btn').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.d) === d);
+  });
+  $('diffDesc').textContent = DIFF_DESC[d];
+}
+setDiffUI(1); // default casual on load
+
+document.querySelectorAll('.diff-btn').forEach(btn => {
+  btn.onclick = async () => {
+    const d = parseInt(btn.dataset.d);
+    setDiffUI(d);
+    if (settingsChar) {
+      try {
+        await settingsChar.writeValue(new TextEncoder().encode(String(d)));
+        log(`Difficulty → ${DIFF_LABELS[d]}`);
+      } catch(e) { log('Difficulty write failed: ' + e.message); }
+    }
+  };
+});
+
+// ── Stats notification handler ──
+// ESP32 sends: "H:40,P:60,L:3,X:120,N:200,D:1"
+function onStats(event) {
+  const val = new TextDecoder().decode(event.target.value);
+  const get = key => { const m = val.match(new RegExp(key + ':(-?\\d+\\.?\\d*)')); return m ? parseFloat(m[1]) : null; };
+
+  const h = get('H'), p = get('P'), l = get('L');
+  const x = get('X'), n = get('N'), d = get('D');
+
+  if (h !== null) { $('hungerBar').style.width = h + '%'; $('hungerVal').textContent = h; }
+  if (p !== null) { $('happyBar').style.width  = p + '%'; $('happyVal').textContent  = p; }
+  if (l !== null) { $('levelVal').textContent = 'LVL ' + l; }
+  if (x !== null && n !== null && n > 0) {
+    $('xpBar').style.width = Math.min(100, (x / n * 100)) + '%';
+    $('xpVal').textContent = x + ' / ' + n;
+  }
+  if (d !== null && d !== currentDiff) setDiffUI(d);
 }
 
 // ── BLE connect ──
 $('connectBtn').onclick = async () => {
   try {
-    log("Requesting BLE device...");
+    log("Scanning for CarPet...");
     device = await navigator.bluetooth.requestDevice({
       filters: [{ name: "CarPet" }],
       optionalServices: [SERVICE_UUID]
     });
-    log("Selected: " + device.name);
     device.addEventListener('gattserverdisconnected', onDisconnect);
 
-    const server = await device.gatt.connect();
-    log("Connected to GATT server");
+    const server  = await device.gatt.connect();
     const service = await server.getPrimaryService(SERVICE_UUID);
-    characteristic = await service.getCharacteristic(CHAR_UUID);
-    log("Got characteristic - ready to stream");
+
+    // GPS char (existing)
+    gpsChar = await service.getCharacteristic(GPS_UUID);
+    log("GPS ready");
+
+    // Settings char (write difficulty)
+    try {
+      settingsChar = await service.getCharacteristic(SETTINGS_UUID);
+      log("Settings ready");
+    } catch(e) { log("No settings char — update firmware"); }
+
+    // Stats char (notify pet stats)
+    try {
+      statsChar = await service.getCharacteristic(STATS_UUID);
+      statsChar.addEventListener('characteristicvaluechanged', onStats);
+      await statsChar.startNotifications();
+      log("Pet stats streaming");
+      $('petCard').style.display = '';
+      $('diffCard').style.display = '';
+    } catch(e) { log("No stats char — update firmware"); }
 
     $('bleDot').classList.add('on');
     $('bleStatus').textContent = "Connected to CarPet";
-    $('connectBtn').textContent = "Connected";
+    $('connectBtn').textContent = "Connected ✓";
     $('connectBtn').disabled = true;
     $('gpsBtn').disabled = false;
-  } catch (err) {
-    log("ERROR: " + err.message);
-  }
+
+  } catch(e) { log("Error: " + e.message); }
 };
 
 function onDisconnect() {
-  log("CarPet disconnected");
+  log("Disconnected");
   $('bleDot').classList.remove('on');
   $('bleStatus').textContent = "Not connected to CarPet";
   $('connectBtn').textContent = "Connect to CarPet";
   $('connectBtn').disabled = false;
   $('gpsBtn').disabled = true;
-  characteristic = null;
+  $('petCard').style.display = 'none';
+  $('diffCard').style.display = 'none';
+  gpsChar = null; settingsChar = null; statsChar = null;
 }
 
 // ── GPS ──
 $('gpsBtn').onclick = () => {
   if (watchId === null) {
     if (!navigator.geolocation) { log("Geolocation not supported"); return; }
-    log("Starting GPS...");
-    watchId = navigator.geolocation.watchPosition(onGps, onGpsErr, {
-      enableHighAccuracy: true, maximumAge: 0, timeout: 5000
-    });
+    watchId = navigator.geolocation.watchPosition(onGps, onGpsErr,
+      { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
     $('gpsBtn').textContent = "Stop GPS";
     $('gpsDot').classList.add('on');
     $('gpsStatus').textContent = "GPS active";
+    log("GPS started");
   } else {
-    navigator.geolocation.clearWatch(watchId);
-    watchId = null;
+    navigator.geolocation.clearWatch(watchId); watchId = null;
     $('gpsBtn').textContent = "Start GPS";
     $('gpsDot').classList.remove('on');
     $('gpsStatus').textContent = "GPS off";
@@ -186,50 +347,36 @@ $('gpsBtn').onclick = () => {
 };
 
 function onGps(pos) {
-  // speed in m/s from GPS; convert to mph
-  let speedMph = 0;
-  if (pos.coords.speed !== null && !isNaN(pos.coords.speed)) {
-    speedMph = pos.coords.speed * 2.23694;  // m/s to mph
-  }
-
-  // accumulate distance from position deltas
+  let mph = 0;
+  if (pos.coords.speed != null && !isNaN(pos.coords.speed))
+    mph = pos.coords.speed * 2.23694;
   if (lastPos) {
     const d = haversine(lastPos.latitude, lastPos.longitude,
                         pos.coords.latitude, pos.coords.longitude);
-    if (d < 0.5) totalMiles += d;  // ignore GPS jumps over 0.5mi
+    if (d < 0.5) totalMiles += d;
   }
   lastPos = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
-
-  $('speedVal').textContent = Math.round(speedMph);
-  $('distVal').textContent = totalMiles.toFixed(1);
-
-  sendToCarpet(speedMph, totalMiles);
+  $('speedVal').textContent = Math.round(mph);
+  $('distVal').textContent  = totalMiles.toFixed(1);
+  sendGps(mph, totalMiles);
 }
 
-function onGpsErr(err) {
-  log("GPS error: " + err.message);
-}
+function onGpsErr(e) { log("GPS error: " + e.message); }
 
-// distance between two lat/lon points in miles
 function haversine(lat1, lon1, lat2, lon2) {
-  const R = 3958.8; // earth radius in miles
-  const dLat = (lat2-lat1) * Math.PI/180;
-  const dLon = (lon2-lon1) * Math.PI/180;
+  const R = 3958.8, r = Math.PI/180;
+  const dLat = (lat2-lat1)*r, dLon = (lon2-lon1)*r;
   const a = Math.sin(dLat/2)**2 +
-            Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) *
-            Math.sin(dLon/2)**2;
+            Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(dLon/2)**2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-// ── send to ESP32 ──
-async function sendToCarpet(speed, miles) {
-  if (!characteristic) return;
+async function sendGps(speed, miles) {
+  if (!gpsChar) return;
   try {
-    const msg = `S:${speed.toFixed(1)},D:${miles.toFixed(2)}`;
-    await characteristic.writeValue(new TextEncoder().encode(msg));
-  } catch (err) {
-    log("Send failed: " + err.message);
-  }
+    await gpsChar.writeValue(new TextEncoder().encode(
+      `S:${speed.toFixed(1)},D:${miles.toFixed(2)}`));
+  } catch(e) { log("GPS send failed: " + e.message); }
 }
 </script>
 </body>
