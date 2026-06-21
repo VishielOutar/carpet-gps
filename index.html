@@ -66,8 +66,6 @@
   button:active { transform: scale(.98); }
   button:disabled { opacity: .4; }
   button.secondary { background: #24242c; color: var(--text); }
-
-  /* speed/miles readout */
   .readout {
     display: flex; justify-content: space-around; text-align: center;
     margin-top: 18px;
@@ -126,6 +124,7 @@
   }
   .diff-btn:active { transform: scale(.96); }
   .diff-desc { font-size: 13px; color: var(--muted); line-height: 1.5; min-height: 38px; }
+  .diff-note { font-size: 12px; color: var(--muted); margin-top: 10px; opacity: 0.6; }
 
   /* log */
   .log {
@@ -166,7 +165,7 @@
     </div>
   </div>
 
-  <!-- Pet stats card — hidden until connected -->
+  <!-- Pet stats card — shown after connecting if firmware supports it -->
   <div class="card" id="petCard" style="display:none">
     <div class="section-title">Pet Status</div>
     <div class="stat-row">
@@ -186,7 +185,7 @@
     </div>
   </div>
 
-  <!-- Difficulty card — hidden until connected -->
+  <!-- Difficulty card — always shown after connecting -->
   <div class="card" id="diffCard" style="display:none">
     <div class="section-title">Difficulty</div>
     <div class="diff-grid">
@@ -195,6 +194,7 @@
       <button class="diff-btn" data-d="2">RACER</button>
     </div>
     <div class="diff-desc" id="diffDesc"></div>
+    <div class="diff-note" id="diffNote"></div>
   </div>
 
   <!-- Log card -->
@@ -207,8 +207,8 @@
 // ── BLE UUIDs ──
 const SERVICE_UUID  = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const GPS_UUID      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
-const SETTINGS_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";  // write difficulty
-const STATS_UUID    = "6e400004-b5a3-f393-e0a9-e50e24dcca9e";  // notify pet stats
+const SETTINGS_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
+const STATS_UUID    = "6e400004-b5a3-f393-e0a9-e50e24dcca9e";
 
 let device = null;
 let gpsChar = null, settingsChar = null, statsChar = null;
@@ -239,7 +239,7 @@ function setDiffUI(d) {
   });
   $('diffDesc').textContent = DIFF_DESC[d];
 }
-setDiffUI(1); // default casual on load
+setDiffUI(1); // default casual
 
 document.querySelectorAll('.diff-btn').forEach(btn => {
   btn.onclick = async () => {
@@ -250,6 +250,8 @@ document.querySelectorAll('.diff-btn').forEach(btn => {
         await settingsChar.writeValue(new TextEncoder().encode(String(d)));
         log(`Difficulty → ${DIFF_LABELS[d]}`);
       } catch(e) { log('Difficulty write failed: ' + e.message); }
+    } else {
+      log(`Difficulty set to ${DIFF_LABELS[d]} — update firmware to sync to device`);
     }
   };
 });
@@ -258,14 +260,16 @@ document.querySelectorAll('.diff-btn').forEach(btn => {
 // ESP32 sends: "H:40,P:60,L:3,X:120,N:200,D:1"
 function onStats(event) {
   const val = new TextDecoder().decode(event.target.value);
-  const get = key => { const m = val.match(new RegExp(key + ':(-?\\d+\\.?\\d*)')); return m ? parseFloat(m[1]) : null; };
-
+  const get = key => {
+    const m = val.match(new RegExp(key + ':(-?\\d+\\.?\\d*)'));
+    return m ? parseFloat(m[1]) : null;
+  };
   const h = get('H'), p = get('P'), l = get('L');
   const x = get('X'), n = get('N'), d = get('D');
 
   if (h !== null) { $('hungerBar').style.width = h + '%'; $('hungerVal').textContent = h; }
   if (p !== null) { $('happyBar').style.width  = p + '%'; $('happyVal').textContent  = p; }
-  if (l !== null) { $('levelVal').textContent = 'LVL ' + l; }
+  if (l !== null) $('levelVal').textContent = 'LVL ' + l;
   if (x !== null && n !== null && n > 0) {
     $('xpBar').style.width = Math.min(100, (x / n * 100)) + '%';
     $('xpVal').textContent = x + ' / ' + n;
@@ -286,25 +290,33 @@ $('connectBtn').onclick = async () => {
     const server  = await device.gatt.connect();
     const service = await server.getPrimaryService(SERVICE_UUID);
 
-    // GPS char (existing)
+    // GPS characteristic (existing)
     gpsChar = await service.getCharacteristic(GPS_UUID);
     log("GPS ready");
 
-    // Settings char (write difficulty)
+    // Always show difficulty card once connected
+    $('diffCard').style.display = '';
+
+    // Settings characteristic — write difficulty to device
     try {
       settingsChar = await service.getCharacteristic(SETTINGS_UUID);
-      log("Settings ready");
-    } catch(e) { log("No settings char — update firmware"); }
+      log("Settings ready — difficulty syncs to device");
+      $('diffNote').textContent = '';
+    } catch(e) {
+      log("No settings characteristic — difficulty selection is local only until firmware update");
+      $('diffNote').textContent = "Update firmware to sync difficulty to the device.";
+    }
 
-    // Stats char (notify pet stats)
+    // Stats characteristic — live pet stats via notifications
     try {
       statsChar = await service.getCharacteristic(STATS_UUID);
       statsChar.addEventListener('characteristicvaluechanged', onStats);
       await statsChar.startNotifications();
       log("Pet stats streaming");
       $('petCard').style.display = '';
-      $('diffCard').style.display = '';
-    } catch(e) { log("No stats char — update firmware"); }
+    } catch(e) {
+      log("No stats characteristic — update firmware for live pet stats");
+    }
 
     $('bleDot').classList.add('on');
     $('bleStatus').textContent = "Connected to CarPet";
@@ -364,7 +376,7 @@ function onGps(pos) {
 function onGpsErr(e) { log("GPS error: " + e.message); }
 
 function haversine(lat1, lon1, lat2, lon2) {
-  const R = 3958.8, r = Math.PI/180;
+  const R = 3958.8, r = Math.PI / 180;
   const dLat = (lat2-lat1)*r, dLon = (lon2-lon1)*r;
   const a = Math.sin(dLat/2)**2 +
             Math.cos(lat1*r)*Math.cos(lat2*r)*Math.sin(dLon/2)**2;
