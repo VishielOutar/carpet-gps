@@ -76,29 +76,16 @@
   .accent2 { color: var(--accent2); }
 
   /* pet stats */
-  .stat-row {
-    display: flex; align-items: center; gap: 10px; margin-bottom: 14px;
-  }
+  .stat-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
   .stat-label { font-size: 14px; width: 72px; flex-shrink: 0; }
-  .bar-bg {
-    flex: 1; height: 8px; background: #24242c;
-    border-radius: 4px; overflow: hidden;
-  }
-  .bar-fill {
-    height: 100%; border-radius: 4px;
-    transition: width .6s cubic-bezier(.4,0,.2,1);
-  }
+  .bar-bg { flex: 1; height: 8px; background: #24242c; border-radius: 4px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 4px; transition: width .6s cubic-bezier(.4,0,.2,1); }
   .bar-fill.hunger { background: var(--accent); }
   .bar-fill.happy  { background: var(--accent2); }
   .stat-num { font-size: 13px; font-weight: 700; width: 28px; text-align: right; }
-  .level-row {
-    display: flex; align-items: center; gap: 10px; margin-top: 2px;
-  }
+  .level-row { display: flex; align-items: center; gap: 10px; margin-top: 2px; }
   .level-label { font-size: 18px; font-weight: 700; color: var(--accent); width: 56px; }
-  .xp-bg {
-    flex: 1; height: 6px; background: #24242c;
-    border-radius: 3px; overflow: hidden;
-  }
+  .xp-bg { flex: 1; height: 6px; background: #24242c; border-radius: 3px; overflow: hidden; }
   .xp-fill {
     height: 100%;
     background: linear-gradient(90deg, var(--accent), var(--accent2));
@@ -108,20 +95,14 @@
   .xp-label { font-size: 11px; color: var(--muted); width: 52px; text-align: right; }
 
   /* difficulty */
-  .diff-grid {
-    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px;
-  }
+  .diff-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
   .diff-btn {
     padding: 14px 6px; font-size: 13px; font-weight: 700; letter-spacing: 1px;
     border: 2px solid #24242c; border-radius: 10px;
     background: #24242c; color: var(--muted);
     cursor: pointer; transition: all .2s; margin-top: 0; width: auto;
   }
-  .diff-btn.active {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: rgba(162,186,252,.08);
-  }
+  .diff-btn.active { border-color: var(--accent); color: var(--accent); background: rgba(162,186,252,.08); }
   .diff-btn:active { transform: scale(.96); }
   .diff-desc { font-size: 13px; color: var(--muted); line-height: 1.5; min-height: 38px; }
   .diff-note { font-size: 12px; color: var(--muted); margin-top: 10px; opacity: 0.6; }
@@ -204,7 +185,6 @@
   </div>
 
 <script>
-// ── BLE UUIDs ──
 const SERVICE_UUID  = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const GPS_UUID      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 const SETTINGS_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
@@ -215,6 +195,11 @@ let gpsChar = null, settingsChar = null, statsChar = null;
 let watchId = null;
 let totalMiles = 0, lastPos = null;
 let currentDiff = 1;
+
+// GPS throttle — only send to device when speed changes >1 mph,
+// distance changes >0.01 miles, OR 3 seconds have passed.
+// Cuts BLE traffic dramatically and reduces display glitching.
+let lastSentSpeed = -99, lastSentDist = -99, lastSentTime = 0;
 
 const DIFF_LABELS = ['SLOW', 'CASUAL', 'RACER'];
 const DIFF_DESC = [
@@ -239,7 +224,7 @@ function setDiffUI(d) {
   });
   $('diffDesc').textContent = DIFF_DESC[d];
 }
-setDiffUI(1); // default casual
+setDiffUI(1);
 
 document.querySelectorAll('.diff-btn').forEach(btn => {
   btn.onclick = async () => {
@@ -257,16 +242,11 @@ document.querySelectorAll('.diff-btn').forEach(btn => {
 });
 
 // ── Stats notification handler ──
-// ESP32 sends: "H:40,P:60,L:3,X:120,N:200,D:1"
 function onStats(event) {
   const val = new TextDecoder().decode(event.target.value);
-  const get = key => {
-    const m = val.match(new RegExp(key + ':(-?\\d+\\.?\\d*)'));
-    return m ? parseFloat(m[1]) : null;
-  };
+  const get = key => { const m = val.match(new RegExp(key + ':(-?\\d+\\.?\\d*)')); return m ? parseFloat(m[1]) : null; };
   const h = get('H'), p = get('P'), l = get('L');
   const x = get('X'), n = get('N'), d = get('D');
-
   if (h !== null) { $('hungerBar').style.width = h + '%'; $('hungerVal').textContent = h; }
   if (p !== null) { $('happyBar').style.width  = p + '%'; $('happyVal').textContent  = p; }
   if (l !== null) $('levelVal').textContent = 'LVL ' + l;
@@ -290,14 +270,11 @@ $('connectBtn').onclick = async () => {
     const server  = await device.gatt.connect();
     const service = await server.getPrimaryService(SERVICE_UUID);
 
-    // GPS characteristic (existing)
     gpsChar = await service.getCharacteristic(GPS_UUID);
     log("GPS ready");
 
-    // Always show difficulty card once connected
     $('diffCard').style.display = '';
 
-    // Settings characteristic — write difficulty to device
     try {
       settingsChar = await service.getCharacteristic(SETTINGS_UUID);
       log("Settings ready — difficulty syncs to device");
@@ -307,7 +284,6 @@ $('connectBtn').onclick = async () => {
       $('diffNote').textContent = "Update firmware to sync difficulty to the device.";
     }
 
-    // Stats characteristic — live pet stats via notifications
     try {
       statsChar = await service.getCharacteristic(STATS_UUID);
       statsChar.addEventListener('characteristicvaluechanged', onStats);
@@ -337,6 +313,7 @@ function onDisconnect() {
   $('petCard').style.display = 'none';
   $('diffCard').style.display = 'none';
   gpsChar = null; settingsChar = null; statsChar = null;
+  lastSentSpeed = -99; lastSentDist = -99; lastSentTime = 0;
 }
 
 // ── GPS ──
@@ -359,21 +336,6 @@ $('gpsBtn').onclick = () => {
 };
 
 function onGps(pos) {
-
-  let lastSentSpeed = -1, lastSentDist = -1;
-
-async function sendGps(speed, miles) {
-  if (!gpsChar) return;
-  // Only send if speed changed by >1 mph or distance by >0.01 miles
-  if (Math.abs(speed - lastSentSpeed) < 1.0 && Math.abs(miles - lastSentDist) < 0.01) return;
-  lastSentSpeed = speed;
-  lastSentDist  = miles;
-  try {
-    await gpsChar.writeValue(new TextEncoder().encode(
-      `S:${speed.toFixed(1)},D:${miles.toFixed(2)}`));
-  } catch(e) { log("GPS send failed: " + e.message); }
-}
-  
   let mph = 0;
   if (pos.coords.speed != null && !isNaN(pos.coords.speed))
     mph = pos.coords.speed * 2.23694;
@@ -398,8 +360,18 @@ function haversine(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
+// Throttled GPS send — only transmit when something meaningful changed
+// or 3 seconds have passed. Keeps BLE traffic low so the display stays smooth.
 async function sendGps(speed, miles) {
   if (!gpsChar) return;
+  const now = Date.now();
+  const speedChanged = Math.abs(speed - lastSentSpeed) >= 1.0;
+  const distChanged  = Math.abs(miles - lastSentDist)  >= 0.01;
+  const timedOut     = (now - lastSentTime) >= 3000;
+  if (!speedChanged && !distChanged && !timedOut) return;
+  lastSentSpeed = speed;
+  lastSentDist  = miles;
+  lastSentTime  = now;
   try {
     await gpsChar.writeValue(new TextEncoder().encode(
       `S:${speed.toFixed(1)},D:${miles.toFixed(2)}`));
