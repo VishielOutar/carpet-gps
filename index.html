@@ -29,6 +29,7 @@
   }
   h1 { font-size: 22px; letter-spacing: 1px; margin-top: 8px; }
   .cat { font-size: 46px; }
+  .petname { font-size: 16px; color: var(--accent); font-weight: 600; margin-top: -6px; min-height: 20px; }
   .card {
     background: var(--card);
     border-radius: 16px;
@@ -94,6 +95,19 @@
   }
   .xp-label { font-size: 11px; color: var(--muted); width: 52px; text-align: right; }
 
+  /* name editor */
+  .name-row { display: flex; gap: 10px; align-items: stretch; }
+  .name-input {
+    flex: 1; padding: 14px; font-size: 16px; font-weight: 600;
+    background: #0a0a0e; border: 1px solid #24242c; border-radius: 10px;
+    color: var(--text); font-family: inherit;
+  }
+  .name-input:focus { outline: none; border-color: var(--accent); }
+  .name-save {
+    width: auto; padding: 14px 22px; margin-top: 0; flex-shrink: 0;
+  }
+  .name-note { font-size: 12px; color: var(--muted); margin-top: 10px; }
+
   /* difficulty */
   .diff-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
   .diff-btn {
@@ -121,6 +135,7 @@
 <body>
   <div class="cat">🐱</div>
   <h1>CARPET</h1>
+  <div class="petname" id="petNameHeader"></div>
 
   <!-- Connection + GPS card -->
   <div class="card">
@@ -144,6 +159,17 @@
         <div class="unit">MILES</div>
       </div>
     </div>
+  </div>
+
+  <!-- Pet name card — shown after connecting if firmware supports it -->
+  <div class="card" id="nameCard" style="display:none">
+    <div class="section-title">Pet Name</div>
+    <div class="name-row">
+      <input class="name-input" id="nameInput" type="text" maxlength="15"
+             placeholder="Name your pet" autocomplete="off" autocapitalize="words">
+      <button class="name-save" id="nameSaveBtn">Save</button>
+    </div>
+    <div class="name-note" id="nameNote">Up to 15 characters.</div>
   </div>
 
   <!-- Pet stats card — shown after connecting if firmware supports it -->
@@ -189,16 +215,16 @@ const SERVICE_UUID  = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const GPS_UUID      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 const SETTINGS_UUID = "6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 const STATS_UUID    = "6e400004-b5a3-f393-e0a9-e50e24dcca9e";
+const NAME_UUID     = "6e400005-b5a3-f393-e0a9-e50e24dcca9e";
 
 let device = null;
-let gpsChar = null, settingsChar = null, statsChar = null;
+let gpsChar = null, settingsChar = null, statsChar = null, nameChar = null;
 let watchId = null;
 let totalMiles = 0, lastPos = null;
 let currentDiff = 1;
 
 // GPS throttle — only send to device when speed changes >1 mph,
 // distance changes >0.01 miles, OR 3 seconds have passed.
-// Cuts BLE traffic dramatically and reduces display glitching.
 let lastSentSpeed = -99, lastSentDist = -99, lastSentTime = 0;
 
 const DIFF_LABELS = ['SLOW', 'CASUAL', 'RACER'];
@@ -215,6 +241,29 @@ function log(msg) {
   const t = new Date().toLocaleTimeString();
   el.textContent = `[${t}] ${msg}\n` + el.textContent;
 }
+
+// ── Pet name UI ──
+function setNameUI(name) {
+  const clean = (name || '').trim();
+  $('petNameHeader').textContent = clean;
+  $('nameInput').value = clean;
+}
+
+$('nameSaveBtn').onclick = async () => {
+  const name = $('nameInput').value.trim().slice(0, 15);
+  if (!name) { log('Enter a name first'); return; }
+  if (!nameChar) { log('Name not supported — update firmware'); return; }
+  try {
+    await nameChar.writeValue(new TextEncoder().encode(name));
+    setNameUI(name);
+    log(`Pet renamed to "${name}"`);
+  } catch(e) { log('Name write failed: ' + e.message); }
+};
+
+// Save on Enter key too
+$('nameInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); $('nameSaveBtn').click(); $('nameInput').blur(); }
+});
 
 // ── Difficulty UI ──
 function setDiffUI(d) {
@@ -275,6 +324,18 @@ $('connectBtn').onclick = async () => {
 
     $('diffCard').style.display = '';
 
+    // Pet name characteristic — read current name, enable editing
+    try {
+      nameChar = await service.getCharacteristic(NAME_UUID);
+      const cur = await nameChar.readValue();
+      const curName = new TextDecoder().decode(cur).trim();
+      setNameUI(curName);
+      $('nameCard').style.display = '';
+      log(`Pet name: "${curName || '(unnamed)'}"`);
+    } catch(e) {
+      log("No name characteristic — update firmware to name your pet");
+    }
+
     try {
       settingsChar = await service.getCharacteristic(SETTINGS_UUID);
       log("Settings ready — difficulty syncs to device");
@@ -312,7 +373,8 @@ function onDisconnect() {
   $('gpsBtn').disabled = true;
   $('petCard').style.display = 'none';
   $('diffCard').style.display = 'none';
-  gpsChar = null; settingsChar = null; statsChar = null;
+  $('nameCard').style.display = 'none';
+  gpsChar = null; settingsChar = null; statsChar = null; nameChar = null;
   lastSentSpeed = -99; lastSentDist = -99; lastSentTime = 0;
 }
 
@@ -360,8 +422,7 @@ function haversine(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
-// Throttled GPS send — only transmit when something meaningful changed
-// or 3 seconds have passed. Keeps BLE traffic low so the display stays smooth.
+// Throttled GPS send
 async function sendGps(speed, miles) {
   if (!gpsChar) return;
   const now = Date.now();
